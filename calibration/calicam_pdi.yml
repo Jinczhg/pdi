@@ -1,4 +1,5 @@
 %YAML:1.0
+---
 cam_model: stereo
 sn: "21-181220-0041"
 Kl: !!opencv-matrix

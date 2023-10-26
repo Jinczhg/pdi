@@ -69,7 +69,7 @@ bool SceneWindow::start_draw()
     glScaled(1, -1, -1);
     
     set_viewpoint(viewpoint);
-
+    glClearColor(1, 1, 1, 1); // set green color
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
     
     glEnable(GL_DEPTH_TEST);
@@ -78,6 +78,8 @@ bool SceneWindow::start_draw()
 
     glEnable(GL_BLEND);
     glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+    // set size to 1 for a group of points
+    glPointSize(3);
     
     return true;
 }
