@@ -1,7 +1,7 @@
 
 // This is No Warranty No Copyright Software.
-// astar.ai
-// May 15, 2019
+// Jincheng Zhang
+// Dec 4, 2023
 
 #include <GL/gl.h>
 #include <opencv2/opencv.hpp>
@@ -275,9 +275,9 @@ void InitRectifyMap() {
     Kll.at<double>(1,1) = (img_size.height - 1.) / CV_PI;
 
     InitRectifyMap(Kl, Dl, Rl, Kll, xil.at<double>(0,0),
-                   img_size, RECT_FISHEYE, lmap[0][0], lmap[0][1]);
+                   img_size, RECT_LONGLAT, lmap[0][0], lmap[0][1]);
     InitRectifyMap(Kr, Dr, Rr, Kll, xir.at<double>(0,0),
-                   img_size, RECT_FISHEYE, lmap[1][0], lmap[1][1]);
+                   img_size, RECT_LONGLAT, lmap[1][0], lmap[1][1]);
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -514,19 +514,19 @@ void PointCloudsFromDepth(const cv::Mat &depth_img,
 
 ////////////////////////////////////////////////////////////////////////////////
 
-void DisparityFromDepth(const cv::Mat &depth_img,
-                        cv::Mat& disp_img_gt) {
+void undistortedDisparityFromDepth(const cv::Mat &depth_img,
+                                   cv::Mat& disp_img_gt) {
     disp_img_gt = cv::Mat::zeros(cv::Size(depth_img.rows, depth_img.cols), CV_32FC1);
     double bl = cv::norm(T);
     double pi_w = CV_PI / (rect_cols - 1.);
     for (int r = 0; r < depth_img.rows; ++r) {
         for (int c = 0; c < depth_img.cols; ++c) {
             float depth = depth_img.at<float>(r, c);
-            if (depth > MAX_DEPTH) continue;
-            if (depth <= 0) {
-//                std::cout << "Invalid depth." << std::endl;
-                continue;
-            }
+//            if (depth > MAX_DEPTH) continue;
+//            if (depth <= 0) {
+////                std::cout << "Invalid depth." << std::endl;
+//                continue;
+//            }
             double tt = (c / (depth_img.cols - 1.) - 0.5) * CV_PI;
             double pp = (r / (depth_img.rows - 1.) - 0.5) * CV_PI;
 
@@ -537,7 +537,7 @@ void DisparityFromDepth(const cv::Mat &depth_img,
             double cr = std::sqrt(cx * cx + cy * cy + cz * cz);
             double ct = std::acos(cz / cr); // theta [0, PI]
 
-            if (ct > (CV_PI / 2.) * (thr_now / 100.)) {
+            if (ct > (CV_PI / 2.) * (100 / 100.)) {
                 continue;
             }
 
@@ -550,13 +550,38 @@ void DisparityFromDepth(const cv::Mat &depth_img,
 //            spherecial_pt.at<double>(0, 2) = spherecial_pt.at<double>(0, 2) - xil.at<double>(0, 0);
 //            double theta_l = CV_PI / 2 + std::atan2(spherecial_pt.at<double>(0, 0), spherecial_pt.at<double>(0, 2));
 
-            double mgnt = depth / cr;
+            double mgnt = depth / cr;   // divided by cr (not cz) because depth here is "distance" (or perspective depth) not "planar depth".
             double diff = atan(bl * sin(c * pi_w) / (mgnt + bl * cos(c * pi_w)));
 //            double diff = atan(bl * sin(theta_l) / (mgnt + bl * cos(theta_l)));
 
             float disp = diff / pi_w;
 
             disp_img_gt.at<float>(r, c) = disp;
+        }
+    }
+}
+
+////////////////////////////////////////////////////////////////////////////////
+
+void fisheyeDisparityFromDepth(const cv::Mat &depth_img,
+                        cv::Mat& fisheye_disp_img_gt) {
+    // fisheye disparity is angular disparity defined in "Binocular Spherical Stereo" (https://ieeexplore.ieee.org/document/4667675)
+    fisheye_disp_img_gt = cv::Mat::zeros(cv::Size(depth_img.rows, depth_img.cols), CV_32FC1);
+    float bl = cv::norm(T);
+    float pi_w = CV_PI / (depth_img.cols - 1.);
+    for (int r = 0; r < depth_img.rows; ++r) {
+        for (int c = 0; c < depth_img.cols; ++c) {
+            float depth = depth_img.at<float>(r, c);
+
+            if (depth <= 0) continue;
+
+            float mgnt = depth;
+            float param = bl * sin(c * pi_w) / (mgnt + bl * cos(c * pi_w));
+            float diff = atan(param);
+
+            float disp = diff / pi_w;
+
+            fisheye_disp_img_gt.at<float>(r, c) = disp;
         }
     }
 }
@@ -627,7 +652,7 @@ void writePCD(std::vector<PCL> &pcl_vec) {
 bool half_size = false;
 int main() {
     bool airsimImage = false, astarImage = false, astarVideo = false, astarLive = false; // To run live mode, you need a CaliCam from www.astar.ai
-    int experiment = 1;
+    int experiment = 0;
     switch (experiment) {
         case 0:
             airsimImage = true;
@@ -650,7 +675,7 @@ int main() {
 
     std::string image_name, input_folder, output_folder, param_name;
     cv::Mat raw_imgl, raw_imgr;
-    bool gtDepth = false;
+    bool gtDepth = true;
     if (airsimImage){
         gtDepth = true;
         input_folder = "../data/images/outdoors/input/";
@@ -761,10 +786,10 @@ int main() {
 //            applyColorMap(ll_depth_norm, ll_depth_norm, cv::COLORMAP_JET);
 //            cv::imshow("rectified_depth", ll_depth_norm);
             cv::Mat disp_img_gt;
-            DisparityFromDepth(ll_depth, disp_img_gt);
+            undistortedDisparityFromDepth(ll_depth, disp_img_gt);
             cv::Mat disp_img_gt_norm;
             cv::normalize(disp_img_gt, disp_img_gt_norm, 0, 255, cv::NORM_MINMAX, CV_8U);
-//            cv::imshow("disparity_gt", disp_img_gt_norm);
+            cv::imshow("disparity_gt", disp_img_gt_norm);
 //            writePFM(output_folder + "/disparity_gt.pfm", disp_img_gt);
             std::vector<PCL> pcl_vec_gt;
             PointCloudsFromDepth(ll_depth, ll_imgl, pcl_vec_gt);
